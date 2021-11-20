@@ -10,13 +10,19 @@ This is just reminder from
 
 ## Requirement
 
-
 ## Install
+- mysql.yaml
+  - gcloud services enable container.googleapis.com sqladmin.googleapis.com
 
 ## Usage
 - phpapp-redis.yml
   - kubectl port-forward svc/frontend 8080:80
   - kubectl scale deployment frontend --replicas=5
+
+- statefulset-web.yml
+  - for i in 0 1; do kubectl exec "web-$i" -- sh -c 'echo "$(hostname)" > /usr/share/nginx/html/index.html'; done
+  - for i in 0 1; do kubectl exec web-$i -- chmod 755 /usr/share/nginx/html; done
+  - for i in 0 1; do kubectl exec -i -t "web-$i" -- curl http://localhost/; done
 
 ## Cleanup
 - redis-configmap
@@ -27,6 +33,10 @@ This is just reminder from
   - kubectl delete service -l app=redis
   - kubectl delete deployment frontend
   - kubectl delete service frontend
+
+- statefulset-web.yml
+  - kubectl delete sts web
+  - kubectl delete svc nginx
 
 ## Licence
 
