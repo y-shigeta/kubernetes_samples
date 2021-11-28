@@ -19,6 +19,9 @@ This is just reminder from
   - kubectl port-forward svc/frontend 8080:80
   - kubectl scale deployment frontend --replicas=5
 
+- zookeeper.yml
+  - kubectl exec -it -- zkCli.sh  
+
 - statefulset-web.yml
   - for i in 0 1; do kubectl exec "web-$i" -- sh -c 'echo "$(hostname)" > /usr/share/nginx/html/index.html'; done
   - for i in 0 1; do kubectl exec web-$i -- chmod 755 /usr/share/nginx/html; done
