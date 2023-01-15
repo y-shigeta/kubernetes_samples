@@ -1,0 +1,924 @@
+---
+marp: false
+theme: test
+# K8S Introduction
+---
+
+# reference
+
+- コンテナ化のメリット説明資料
+  https://cloud.google.com/anthos/forrester-tei-report
+  https://www.redhat.com/rhdc/managed-files/cl-idc-business-value-openshift-analyst-material-f28051-202104-en_1.pdf
+
+---
+
+# K8S まとめ
+
+- ローカル PC に作成
+  - Minukube
+  - Docker for Mac : kubectl config use-context
+- コンテナ構築ツール
+  - kubeadmn
+    - Package install: apt-get update && apt-get install -y apt-transport-https
+    - レポジトリ登録
+      - curl -s https://xxx
+      - cat xxx > /etc/apt/
+      - apt-get update
+    - インストール Kubeterntes package：kubelet, kubeadm, kubectl, docker.io
+    - カーネルパラメータ設定：sysctl net.bridge-nf-call-iptables=1
+    - Kubeadm 初期化：kubeadm init
+    - 2 台目の Node 追加：kubeadm join <IP:6443> —token xxx —discoovery-token-ca-cert-hash xxxxxx
+  - Flannel
+    - Node 間の NW に仮想的なトンネルを構築する。
+    - Flannel のデプロイ：kubectl apply -f https://xxxxx
+  - Rancher
+    - docker run -d —restart=unless-stopped -p 80:80 -p 443:443 rancher/rancher:v2.0.6
+
+---
+
+- Kuberbetes のリソース
+  - Workloads:コンテナの実行
+    - Pod,ReplicaSet、Dolpoyment、DaemonSet、StatefulSet、Job、CronJob、Replication Controller
+  - Discovery&LB：外部公開のエンドポイントを提供する
+    - Service:
+      - ClusterIP, ExternalIP, NodePort, LB, Headless, ExternalName, Non-Selector
+    - Ingress
+  - Config&Storage：設定、機密情報、ボリューム
+    - Secret: KeyValue（機密データ）
+    - ConfigMap: KeyValue（一般データ）
+    - PersistentVolumeClaim:ディスクの永続化
+  - Cluster：セキュリティ・クオータ
+    - Node、Namespace、PersistentVolume、ResourceQuota, Service Account, Role, ClusterRole, RoleBinding, ClusterRoleBinding、NetoworkPolicy
+  - Metadata：クラスタ内のリソースを操作するためのリソース
+    - LimitRange、HorizontalPodAutoscaler、PodDisruptionBudget、CustomeResourceDefinition
+
+---
+
+- Namespace
+  - 初期状態では３つの Namespace あり
+    - Kube-system：クラスタのコンポーネントやアドオンが Deploy される
+    - Kube-public：全ユーザが利用できる ConfgiMap などを配置
+    - Default：デフォルト。システムが複雑でない場合はこれを利用する
+  - RBAC：Role-Based Access Control が有効、クラスタの操作を Namespace でわける
+  - Network Policy：Namespace 感の通信の分離
+- Kubeconfig：Kubectl と MasterNode との認証設定。~/.kube/config
+  - clusters, users, contexts（Cluster と Users 情報の組み合わせ）が設定されている
+  - コマンドでも設定可能
+    - kubectl config set-cluster prd-cluster —server=<IP>
+    - kubectl config set-credentials admin —client-certificate xxx
+    - kubectl config set-context prd-admin —cluster-xx —user=xx —namespace=xx
+  - コンテキスト切り替え：kubectl config use-context prd-admin
+  - 短縮コマンド
+    - kubectx prd-admin 　＃コンテキスト切り替え
+    - kubens kube-system 　＃Namespace 切り替え
+- リソース削除
+  - kubectl create -f xxx.yaml
+  - kubectl delete -f xxx.yaml
+    - —grace-period 0 ＃即時
+    - —now # 1 秒後
+    - —force # 強制
+  - kubectl apply # 常に Apply で設定すること。applym kubectl create —save-config 以外では、metadata.annotations.kubectl.kubenetes.io/last-applied-configuration に前回適用したマニュフェストが保存されない。差分が不明で更新ができない場合がある。
+  - kubectl apply -f ./ # フォルダ配下をファイル名に従い順次適用する
+
+---
+
+- マニフェストの分割
+  - 全システムをひとつのフォルダ
+  - サブシステム単位・部署単位にフォルダを分ける
+  - マイクロサービス単位でフォルダを分ける。管理が大変
+  - コンウェイの法則：システムは組織構造と似ている
+- アノテーション：システムが利用するメタデータ。KeyValue。目的は以下。
+  - データを保存する。metadata.annotations.kubectl.kubenetes.io/last-applied-configuration も同様。システムが自動で保存
+  - すべての環境では利用できない設定を行う。クラウドベンダごとの独自仕様
+  - 正式に組み込まれる前の機能を設定する。今はあまりない。
+- ラベル：管理に利用するメタデータ
+  - Yaml の metadata.labels に記載する
+  - kubectl get pods -l <label 名>
+  - 例えば、ReplicaSet ではラベルに付与された Pod の数を数える。LB では Label で振り分ける。不用意に作成せず、Rule を決めておくこと
+
+---
+
+- Prune オプション：kubectl apply —prune で Manifest から削除されたリソースを検知して自動的に削除する。ラベルに一致する全リソースのうち、Kubectl apply で渡していないリソースを削除する。—all オプションは危険
+- kubectl edit: EDITOR 変数に指定したエディタで編集
+- kubectl set:マニフェストに更新されないので乱用は避けるべき
+  - env, image, resources, selector, serviceaccount, subject
+- kubectl get:
+  - -output or -o: jsonpath=“{.metadata.labels}” custome
+  - kubectl get all: 全リソース
+- kubectl describe: より詳細な情報
+- kubectl top: kubectl top node/pod 使用量を表示する
+- kubectl exec -it: Terminal を作成し Input する
+- kubectl logs: kubectl logs -f # tail -f と同様。kubectl logs —since=1h —tail=10 —timestamps=true <Pod> 直近 1 時間以内の 10 件を TimeStamp 有りで表示
+  - Stern: 複数の Pod の Log を同時に表示するオープンソース。
+- kubectl cp: ローカル PC と Pod 間でフィアルコピー。kubectl cp sample-pod:/etc/hostname .
+- kubectl port-forward: kubectl port-forward <Pod> 8888:80 # ローカル 8888 を Pod の 80 に変換して通信する。ひとつの Pod とのみ通信する。Service や Deployment に対して実施するには、kubectl port-forward service/<Service 名>　 8888:80
+- Kubectl のシェル保管機能 source <(kubectl completion bash)
+- デバック： kubectl get pod -v=6 ログレベルを 6 に変更して実行
+- 短縮：　 alias k=‘kubectl’ で短縮コマンド可能　 k get po
+- kube-ps1: プロンプトに Namespace 表示
+- Pod が起動しないケース
+  - kubectl logs: アプリの問題を特定
+  - kubectl describe: Kube の設定やリソースの問題が表示される
+  - kubectl run: exec は Pod が停止するとログインできないので、Pod イメージの Bash を起動
+    - kubectl run —image=<image> —restart=Never —rm -it <Pod> —command — /bin/bash
+
+---
+
+- Workloads リソース
+  - Pod
+    - 通常１ Pod に 1 コンテナ。プロキシコンテナ・SSL 終端など１ Pod に 2 コンテナ入れる。この場合同じ IP がコンテナに振られる。１ Pod に複数コンテナの場合、以下パターンがある。kubectl get で 2/2 と表示される
+      - サイドカー：メインコンテナに機能を追加。例：ログをストレージに転送する
+      - アンバサダー：コンテナと外部システム間の接続を代理する。複数にシャーディングされた DB に接続する際に、このコンテナでメインコンテナを疎結合にできる
+      - アダプタ：外部からのリクエストに対して差分を吸収する。Prometheus だと、Exporter で各ログを Prometheus の形式に合わせて転送する
+    - Pod 命名：英小文字、数、一部記号　- or . 　しか使えない
+    - spec.dnsPolicy: ClusterFirst だと Cluster 内 noDNS を利用。デフォルト
+    - spec.hostAliases: /etc/hosts を書き換える
+  - ReplicaSet
+    - 一定の数に POD を保つ。不足時は Template から生成し、過剰な際はラベルで一致するものを削除する
+    - selector.matchLabels.<label>で一致する Pod 数を検索する。Template の Label と上記 Selector の Label が一致しないとエラーで起動できず。
+    - Selector の設定
+      - equality-based: app=sample-app
+      - set-based: env In [dev,stg]
+  - Deployment
+    - Deployment→ReplicaSet→Pod という関係で POD を管理する。複数の ReplicaSet を管理できる。このようにすることで Rolling Update ができる。旧 → 新 ReplicaSet へ切り替える
+    - —rerord : kubectl apply で履歴を付ける
+    - kubectl rollout history: —record 付きであれば過去履歴を表示
+    - kubectl rollout undo —to-revision 1: 指定の Revision に戻す（古い ReplicaSet で起動される）。このコマンドはあるが、新規に kubectl apply を利用する
+    - アップデート戦略　 spec.strategy.type に記載
+      - Recreate：全て削除し再作成。ダウンあり。
+      - RollingUpdate：以下指定する。
+        - maxUnavailable: アップデート中に許容される不足 Pod
+        - maxSurge：超過 Pod
+        - minReadySeconds: Pod が Ready になったのち待ち時間を入れて、Deployment に連携する
+        - revisionHistoryLimit: ロールバック可能数
+        - progressDeadlineSeconds: アップデートの期限。この期限内にアップデートできない場合は Rollback
+  - DaemonSet
+    - ReplicaSet ではノードのリソース状況で Pod 配置する。DaemonSet では各ノードに必ず一つ Pod 配置する。nodeSelector, Node Anti-Affinity で除外も可能。Fluentd や Datadog 等で利用
+    - アップデート戦略
+      - RollingUpdate
+      - OnDelete：Pod が再作成された際に POD をアップデートする。任意のタイミングで手動で更新するには、kubectl delete pod でトリガーする
+  - StatefulSet
+    - Pod に連番が付与される. 0 番が最初作成され最後に削除される。作成時も Pod ひとつづつ作成となり遅い
+    - データ永続化の仕組みを有している。PV 利用時に同じ PV を使って再作成される。spec.volumeClaimTemplates で指定する。StatefulSet 削除後も PV は削除されず残る。バックアップのため
+    - アップデート戦略
+      - OnDelete
+      - RollingUpdate
+        - spec.strategy.type.rollingUpdate.partition：3 と記載すると、０ − ３までは更新対象外とできる。４以上が Update される
+  - Job
+    - 起動後に正常終了するバッチ処理向けの ReplicaSet。N 並列の Job を XX 回実行する
+    - RestartPolicy：spec.template.spec.restartPolicy
+      - Never: Pod 障害に新規作成
+      - OnFailure：失敗時に作成
+    - spec.completions:成功回数を指定する
+    - spec.parallelism：並列度を指定
+    - spec.backoffLimit：失敗を許容する回数
+  - Cronjob
+    - Cronjob→Job→Pod という関係。１分おきに５０％の確率で成功する Job を一度実行する
+    - spec.suspend:true だとスケジュールから除外される。kubectl apply や kubectl patch で適用
+    - spec.concurrencyPolicy で Pod の同時実行を制御できる。Forbid（同実行しない）、Replcae(前のジョブをキャンセルする)、Allow（許可するデフォルト）
+
+---
+
+- Discovery＆LB
+  - Kubenetes の内部ネットワークはクラスタ作成時に自動作成される。Container Network Interface による実装で Node 感は VXLAN や L2 Routing で転送できる
+  - Service の目的
+    - Pod 向けの LB
+      - spec.selector に記載された Label に転送する。
+    - サービスディスカバリとクラスタ DNS
+      - 環境変数を利用したサービスディスカバリ
+      - DNS 　 A レコードを利用したサービスディスカバリ
+        - <Service 名>.<Namespace>.svc.cluster.local で DNS Lookup 可能（/etc/resolve.conf に svc.cluster.local が入っているので記載しなくて良い）
+      - DNS SRV レコードを利用したサービスディスカバリ
+        - <\_Service Port>.<\_Protocol>.<Service 名>.<Namespace>.svc.cluster.local で DNS 逆引き Lookup 可能
+    - ClusterIP
+      - 静的 IP も指定可能、Service 作成後には変更できない設定。spec.clusterIP
+    - ExternalIP
+      - type は ClusterIP だが、spec.externalIP で指定する。
+      - 利用可能な IP は、GKE Node に割り当てられた Internal IP のみ。Node の External IP は利用できない。
+    - NodePort 　 spec.type:NodePort
+      - すべての Node の IP をコンテナに転送する。spec.ports.nodePort を追加し、全ての Nodes で受け付ける Port 番号を指定する。Kubernetes クラスタ以外からも疎通できる。nodePort は 30000〜32767 まで
+      - 利用可能な IP は、Node の GlobalIP も付与可能
+      - Node 間で通信が分散されるので、同じ Node 内で閉じた通信をこなわせたい場合は、spec.externalTrafficPolicy を利用する。Type:Loadbalancer でも利用可能
+        - Cluster: Pod へのアクセスを均等にする
+        - Local：Node 到着後、Node をまたいだロードバランスはしない。ただし、転送先 Pod のラベルがない場合、レスポンスは返せない。
+    - LoadBalancer spec.type:LoadBalancer
+      - ExternalIP、NodePort いづれも割り当てられた Node の IP を使うため SPOF となっている。LB だと外部サービスを使うのでその心配がない。
+      - LoadBalancer を利用すると全世界に公開されるので、spec.loadBalancerSourceRanges で接続もと IP 制限する。GKE だと Cloud Load Balacer が作成される
+    - Headless Service spec.type:ClusterIP
+      - 対象となる Pod の IP がクラスタ内 DNS から直接帰ってくる。クライアント側のキャッシュに注意
+      - StatefulSet の場合のみ Pod の名前解決が可能
+      - Headless Service の条件。
+        - Service の Spec.type が ClusterIP
+        - Service の Spec.ClusterIP が Node
+        - Service の Metadata.name が StatefulSet の Spec.servicename と同じ
+    - ExternalName Service spec.type:ExternalName
+      - Service 名の名前解決に対して外部ドメインの CNAME を返す
+      - 外部の SaaS と POD を通信させる際に、ExternalName を利用すると、ExternalName の変更だけ行えばよい。外部サービスと疎結合となる。
+    - None-Selector Service 　 spec.type:ClusterIP
+      - ExternalName Service では CNAME をかえすが、これは ClusterIP を返す。以下条件が必要。
+        - spec.type:ClusterIP
+        - Selector を指定しない
+        - ExternalName も指定しない
+  - Ingress 　 kind:Ingress
+    - L7 の LoadBalancer
+    - クラスタ外のロードバランサ利用
+      - GKE Ingress 　 Client ->L7 Ingress ー＞ NodePort→Pod
+    - クラスタ内に Ingress 用の Pod 構築
+      - Nginx Ingress：Client ->L4 　 LB（type:LB）→Nginx Pod(L7)
+      - Nghttpx Ingress:
+
+---
+
+- Config/Storage
+
+  - 環境変数
+    - 静的設定　 spec.containers.env
+    - Pod の情報 fieldRef??
+    - コンテナ resourceFieldRef
+  - Secret
+
+    - 平文で etcd 上に保管される。Secret を使う際に利用する Node のみに暗号化し転送する。tmpfs 領域に保持される。
+    - Kubesec：定義された Manifet を暗号化するオープンソース
+
+      - インストールし、GCP CloudKMS, AWS KMS, GnuPG を利用してデータ領域のみ暗号化する。
+      - インストール：sudo curl -o /usr/local/bin/kubesec -sL https://github.com/shyiko/kubesec/releases/download/${VERSION}/kubesec-${VERSION}-${OS_TYPE}-amd64
+      - GCP CloudKMS の場合、gcloud auth の認証情報で暗号化・複合を行う
+      - 事前に Keyring と暗号鍵を作成しておく。そのうえで、暗号鍵を指定し暗号化する。
+        - gcloud kms keyrings create sample-keyring —location global
+        - gcloud kms keys create —purpose encription —keyring sample-keyring —location global kubesec-key
+        - kubesec encrypt -i —key=gcp:projects/PROJECT/locations/global/keyRings/samplekeyring/cryptoKeys/kubeseckey sampledbauth.yaml
+        - kubesec decrypt -i sampledbauth.yaml
+
+    - 種類
+      - Generic (type:Opaque) \* 一般的。１ MB まで
+        - ファイル渡し：　 kubectl —from-file 　ファイル名が Key となる
+        - まとめてファイルから渡す　 kubectl —from-env-file:
+          - kubectl create secret generic —save-config sample-db-auth —from-env-file ./env-secret.txt
+        - 直接 kubectl で値を渡す　—from-literal
+        - Manifest 渡し: Type は Generic ではなく Opaque とする。Base64 形式で記載する
+      - TLS(type: kubetetes.io/tls) 証明書を LB で渡す際に設定する
+        - kubectl create secret tls —save-config tls-sample —key ~/tls.key —cert ~/tls.crt
+      - Docker registry (type:kubernetes.io/dockerconfgijson)
+        - プライベートコンテナレジストリの場合、認証情報の設定が必要。kubectl で作成し、spec.imagePullSecrets で指定する
+        - kubectl create secret —save-config docker-registry sample-registry-auth —docker-server=REGISTRY_SERVER —docker-username=REGISTRY_USER --docker-password=REGISTRY_USER_PASSWORD —docker-email=REGISTRY_USER_EMAIL
+      - Service Account(type:kubernetes.io/service-account-token)
+    - 利用方法
+      - 環境変数渡し：起動時に読み込まれるのみ。
+        - spec.containers[].env 内で valueFrom.secretKeyRef で Secret 名と Key を指定し渡す
+        - spec.containers[].envFrom で Secret 名を渡す
+      - Volume マウント：60 秒で定期的に Secret の更新を検知する
+        - spec.volumes[]の secret.items[]で指定可能。secret で Secret 全体をマウントすることも可能
+
+  - ConfigMap
+    - データに秘匿性の有無があるだけ。Secret とほぼ同じ
+  - PersistentVolumeClaim
+    - Volume：Kubenetes では作成できない。Manifest に指定して利用するだけ。ConfigMap や Secret もその一種。静的な領域を指定するので競合に注意すること
+      - emptyDir：Pod の一時的な領域。Pod がなくなると削除される
+      - hostPath:Node 上の領域。spec.volumes[].hostPath.type には Directory,　 DirectoryOrCreate、File、Socket、BlockDevice を指定する。
+      - downwardAPI: Pod の情報をファイルとして配置するプラグイン
+      - projected: 複数のファイルを一箇所にまとめる。spec.volumes[].projected.sources[]に各 Secret や ConfigMap の名前を指定する。
+    - PersistentVolume：外部の永続ボリュームを提供するシステムと連携し、ボリュームの作成・削除が可能。
+      - プラグインの種類
+        - GCE Persistent Disk（AWS EBS)
+          - Disk 作成後、PV で指定する
+          - gcloud compute disks create —size=10GB samplegcepv —zone asia-north-east1-a
+        - NFS
+        - iSCSI
+        - Ceph
+        - GlusterFS
+        - OpenStack Cinder
+      - 作成時の設定項目
+        - ラベル
+        - 容量：PVC で指定した容量の PV がない場合は、最も近い容量の DISK がアサインされる。その場合容量の無駄が発生
+        - アクセスモード：RWO（ReadWriteOnce：単一ノードから RW）、ROX（ReadOnlyMany：複数ノード）、、RWX（ReadWriteMany）
+          - GCP,AWS では、RWX はサポートされない。
+        - Reclaim Policy：PV を利用し終えた際の処理。Delete（PV 実態が削除される。DynamicProvisionig で利用）、Retain（消さない、他 PVC で再利用されない）、Recycle（データ削除し再利用可能な状態とする。いづれなくなる）
+        - マウントオプション
+          - ReadOnly、SubPath（フォルダ競合をさける Pod1,Pod2 フォルダを Root フォルダとする）
+        - Storage Class：GKE では kubernetes.io/gce-pd が定義される。DynamicProvisionig が有効であるため、自動払い出しをさけるには no-provisioner を定義しておく
+        - プラグインごとの設定
+    - PersistentVolumeClaim：Cluster 内に定義された PersistentVolume を、Pod からアサインするためのリソース。
+      - pod から利用するには、spec.volumes[]に persistentVolumeClaim.claimName を指定する。
+      - DynamicProvisionig は、PV を自動で作成してくれる。要求しただけの容量がアサインされ無駄がない。ただアクセスモードに制限がある場合あり。
+      - kubectl patch コマンドで PVC の容量を変更できる。縮小はできない
+    - StatefulSet では spec.volumeClaimTemplate が設定できる。自動で PVC を作成できる
+
+- Cluster リソース
+  - 種類
+    - Node
+    - Namespace
+    - PV
+    - ResourceQuota
+      - 前提
+        - 1000 ｍ＝ 1VCPU。GH ｚではない。
+        - spec.containers[].resources に requests[Or limits].cpu or memory で指定する。Request は最低、Limit は最大。Limit を超えた場合でも Node に配置され OverCommit される。Request は超えると配置されない。
+        - requests, limits に nvidia.com/gpu としてすれば GPU 指定できる
+        - Node の AutoScaller は Pod の Requests をベースに発動される。
+        - QoS Class：Pod には Requests・Limits に応じて、自動的に QoS Class が設定される。以下条件で Kubenetes の Status に保存。リソース不足で Pod が停止される際に１，２，３の順に停止される。
+          - １：Best effort: R/L が未設定
+          - ３：Guaranteed：R/L がともに設定される
+          - ２：Burstable: Guaranteed 以外で一つ以上 R/L が設定される
+      - Namespace ごとにリソース制限できる。
+        - 作成可能なリソース数（例：Secret を 10 個まで）
+        - リソース量の制限（例：PV100GB まで）
+    - Service Account
+      - Pod 起動時にひとつ必要。DefaultSA。プライベートレポジトリにアクセスする際に Secret と紐付ける。
+      - Kubenetes/client-go での API 認証
+        - Service Account トークン（In-Cluster Config)
+        - Kubeconfig の認証情報利用（クラスタ外から利用可能）
+      - SA に対して、どのロールを実行できるか認可設定を行う。
+      - RBAC(RoleBaseAccessControl）
+        - Namespace
+        - Cluster
+    - Role:NameSpace を指定する。
+    - ClusterRole：Cluster を指定する。Role との違いはスコープのみ
+      - プリセット。
+      - Cluster-admin:すべての管理者
+      - admin：ClusterRole の編集＋ Namespace の RBAC
+      - edit: ReadWrite
+      - view: ReadOnly
+    - RoleBinding：NameSpace を指定する。
+    - ClusterRoleBinding：Cluster 指定。RoleBiding との違いはスコープのみ
+    - SecurityContext：コンテナに対するセキュリティ設定、特権コンテナとして実行。
+    - PodSecurityContext：Pod に対するセキュリティ設定
+    - PodSecurityPolicy：AllowedHostPaths など制限を付与する。ホワイトリスト形式
+    - NetoworkPolicy：Pod 間の NW ルールを定義する。Namespace ごとに通信を Block するなど可能。STG と PRD 間は Block する。
+
+---
+
+- MetaData
+  - 種類
+    - LimitRange
+      - Namespace ごとにコンテナ・Pod・PV のリソースの最大値・最小値、デフォルトを設定できる。default, defaultRequest, max, min, maxLimitRequestRatio(Limits と Requests の割合。過度の OverCommit を防ぐ)
+    - HPA（HorizontalPodAutoscaler）
+      - 30 秒単位で AutoScale すべきか判断する。
+      - Pod の 1 分間の平均 CPU 利用率で判断し、Target の平均値を超えた場合、3 分に一回 ScaleOut する。スケールインは 5 分に 1 回
+    - VPA(VeriticalPodAutoscaler）
+      - コンテナに割り当てる CPU/MEM を自動的にスケールさせる。Alpha 段階で導入未定
+    - PodDisruptionBudge
+      - Node 排出時に最大停止できる Pod 数を設定する。
+        - spec.minAvailable: Pod の最小起動数
+        - spec.maxUnavailable：Pod の最大停止数
+    - CustomeResourceDefinition
+
+---
+
+- ライフサイクル
+  - HealthCheck
+    - 以下種類があり、spec.containers に設定する。LB では Node での ICMP しかチェックしないので、Pod への設定が必要。
+      - Liveness Probe: Pod が正常に動作しているか確認する。失敗時には Pod 再起動
+      - Readiness Probe：Pod がサービスインする準備ができているか確認する。失敗時には NW トラフィックを流さない。
+    - チェック方式
+      - Exec：コマンドの結果、Exit0 以外を失敗と判定
+      - httpGet: HTTP status 200-399 以外だと失敗
+      - tcpSocket: TCP セッション確率できないと失敗
+    - チェック間隔
+      - initialDelaySeconds：初回チェック開始までの遅延
+      - periodSeconds: チェック間隔
+      - timeoutSeconds:タイムアウト
+      - successThreshold:成功回数
+      - failureThreshold: 失敗回数
+    - 再起動ポリシー　 spec.restartPolicy で指定する
+      - Always: Pod が停止した場合、毎回再起動する（Default）
+      - OnFailure: Exit コードが 0 以外のとき、再起動する
+      - Never: 再起動しない。
+  - Init Containers
+    - コンテナ起動前に別コンテナを起動させる。Setup 　 Script を実行させる。spec.initContainers で指定する。順番にひとつづつ実行される。
+  - postStart, preStop
+    - 任意のコマンド実行。spec.containers[].lifecycle.postStart で設定する。
+    - ただし postStart は spec.containers[].command と非同期で実施されるので使用は控えたほうが良い
+    - Service の除外設定と、Pod の停止処理は自立分散システムであるために非同期。なので PreStop の前に待機時間を設定すべき
+    - spec.terminationGracePeriodSeconds(default30sec)の設定あり。この期間内に SIGTERM 処理が終わっていない場合は SIGKILL で強制停止される
+
+---
+
+- メンテナンス
+  - Node のスケジュール除外
+    - kubectl cordon # 新規 Pod 作成を防ぐ
+    - kubectl uncordon
+    - kubectl drain # Pod を該当 Node から退避させる。Cordon 実施後 SIGTERM 処理がされる
+  - 特定の Node のみスケジュールする
+    - nodeSelector: 簡易版。特定のラベルを持つ Node に配置
+    - nodeAffinity: 特定のノードにスケジュール
+    - Node Anti-Affinity：特定のノード以外にスケジュール
+    - InterPod Affinity：Pod を特定のドメインへ移動させる
+    - InterPod Anti-Affinity：Pod を特定のドメイン以外に移動させる
+  - Node に Taints をつけ許容できる Pod のみスケジュール
+- オープンソース
+  - Helm
+    - インストール
+      - curl -sL https://storage.googleapis.com/kuberneteshelm/helm-v${VERSION}-${OS_TYPE}-amd64.tar.gz -o /tmp/helm.tar.gz
+      - tar -xvf /tmp/helm.tar.gz
+      - mv ${OS_TYPE}-amd64/helm /usr/local/bin/
+      - chmod 755 /usr/local/bin/helm
+    - Helm の要求を処理する Tiller Pod を立ち上げる。
+      - kubectl -n kube-system create serviceaccount tiller
+      - kubectl create —save-config clusterrolebinding tiller —clusterrole=cluster-admin —user=“system:serviceaccount:kube-system:tiller”
+      - helm init —service-account tiller # Tiller Pod 立ち上げ
+      - helm reset # Uninstall
+    - Chart
+      - レシピは以下 Github で公開。Stable と Incubator があり。Stable だけデフォルトでは利用可能。
+      - https://github.com/helm/charts
+      - helm search <chart> #検索
+      - helm install stable/datadog —version 0.15.0 —name datadog-chart-sample —set datadog.apiKey=xxxx
+      - helm template datadog/ # Manifest 出力
+  - Ksonnect
+  - Kustomize
+- CNI
+  - Flannel: 簡素な CNI. VXLAN 利用。Network Policy 利用不可
+  - Calico: Network Policy 利用可能。Node の NW を利用する
+  - Canal: Flannel と Calico の組み合わせ。Tanzu でも利用される
+  - LB との連携
+    - https://www.janog.gr.jp/meeting/janog43/application/files/2215/4900/5049/janog43-k8s-shirota.pdf
+  -
+- ログ
+  - ログはコンテナの標準出力・エラー出力させるよう設定する。もしくは PV でクラスタ外の永続化領域に保存する。
+  - Fluentd は DaemonSet を各ノードに稼働させる。標準出力は/var/log/containers 以下に出力され、Fluentd Pod が Tail プラグインで読み出す。
+  - Fluentd と Fluent Bit は完全互換ではない。Fluent Bit は軽量な Fluentd で対応可能なプラグインも少ない。
+  - Datadog Agent も Fluentd と同様。
+- CICD
+  - Spinnaker：Netflix が開発
+  - Skaffold：Google が開発
+  - JenkinsX：Jenkins の設定の台部分を自動化。
+- マイクロサービス
+  - Linkerd：実績
+  - Conduit：軽量、モニタリングだけ
+  - Istio：機能の多さ、K8s との親和性
+- K8s のアーキテクチャ
+
+  - etcd: データストア
+  - kube-apiserver：API を提供するコンポーネント。中心となる IF
+  - kube-scheduler：Pod のスケジューリングのみ。Affinity など判断
+  - kube-controller-manager：Deployment や ReplicaSet の状態を監視し必要に応じて Pod や ReplicaSet を作成する。
+  - kubelet：Node 上で Pod を起動・停止させる
+  - kube-proxy：Serivce リソースが作成された際にトラフィックを Pod に転送する。
+  - kube-dns：クラスタ内 DNS
+
+- Namespace
+  - 初期状態では３つの Namespace あり
+    - Kube-system：クラスタのコンポーネントやアドオンが Deploy される
+    - Kube-public：全ユーザが利用できる ConfgiMap などを配置
+    - Default：デフォルト。システムが複雑でない場合はこれを利用する
+  - RBAC：Role-Based Access Control が有効、クラスタの操作を Namespace でわける
+  - Network Policy：Namespace 感の通信の分離
+- Kubeconfig：Kubectl と MasterNode との認証設定。~/.kube/config
+  - clusters, users, contexts（Cluster と Users 情報の組み合わせ）が設定されている
+  - コマンドでも設定可能
+    - kubectl config set-cluster prd-cluster —server=<IP>
+    - kubectl config set-credentials admin —client-certificate xxx
+    - kubectl config set-context prd-admin —cluster-xx —user=xx —namespace=xx
+  - コンテキスト切り替え：kubectl config use-context prd-admin
+  - 短縮コマンド
+    - kubectx prd-admin 　＃コンテキスト切り替え
+    - kubens kube-system 　＃Namespace 切り替え
+- リソース削除
+  - kubectl create -f xxx.yaml
+  - kubectl delete -f xxx.yaml
+    - —grace-period 0 ＃即時
+    - —now # 1 秒後
+    - —force # 強制
+  - kubectl apply # 常に Apply で設定すること。applym kubectl create —save-config 以外では、metadata.annotations.kubectl.kubenetes.io/last-applied-configuration に前回適用したマニュフェストが保存されない。差分が不明で更新ができない場合がある。
+  - kubectl apply -f ./ # フォルダ配下をファイル名に従い順次適用する
+- マニフェストの分割
+  - 全システムをひとつのフォルダ
+  - サブシステム単位・部署単位にフォルダを分ける
+  - マイクロサービス単位でフォルダを分ける。管理が大変
+  - コンウェイの法則：システムは組織構造と似ている
+- アノテーション：システムが利用するメタデータ。KeyValue。目的は以下。
+  - データを保存する。metadata.annotations.kubectl.kubenetes.io/last-applied-configuration も同様。システムが自動で保存
+  - すべての環境では利用できない設定を行う。クラウドベンダごとの独自仕様
+  - 正式に組み込まれる前の機能を設定する。今はあまりない。
+- ラベル：管理に利用するメタデータ
+  - Yaml の metadata.labels に記載する
+  - kubectl get pods -l <label 名>
+  - 例えば、ReplicaSet ではラベルに付与された Pod の数を数える。LB では Label で振り分ける。不用意に作成せず、Rule を決めておくこと
+- Prune オプション：kubectl apply —prune で Manifest から削除されたリソースを検知して自動的に削除する。ラベルに一致する全リソースのうち、Kubectl apply で渡していないリソースを削除する。—all オプションは危険
+- kubectl edit: EDITOR 変数に指定したエディタで編集
+- kubectl set:マニフェストに更新されないので乱用は避けるべき
+  - env, image, resources, selector, serviceaccount, subject
+- kubectl get:
+  - -output or -o: jsonpath=“{.metadata.labels}” custome
+  - kubectl get all: 全リソース
+- kubectl describe: より詳細な情報
+- kubectl top: kubectl top node/pod 使用量を表示する
+- kubectl exec -it: Terminal を作成し Input する
+- kubectl logs: kubectl logs -f # tail -f と同様。kubectl logs —since=1h —tail=10 —timestamps=true <Pod> 直近 1 時間以内の 10 件を TimeStamp 有りで表示
+  - Stern: 複数の Pod の Log を同時に表示するオープンソース。
+- kubectl cp: ローカル PC と Pod 間でフィアルコピー。kubectl cp sample-pod:/etc/hostname .
+- kubectl port-forward: kubectl port-forward <Pod> 8888:80 # ローカル 8888 を Pod の 80 に変換して通信する。ひとつの Pod とのみ通信する。Service や Deployment に対して実施するには、kubectl port-forward service/<Service 名>　 8888:80
+- Kubectl のシェル保管機能 source <(kubectl completion bash)
+- デバック： kubectl get pod -v=6 ログレベルを 6 に変更して実行
+- 短縮：　 alias k=‘kubectl’ で短縮コマンド可能　 k get po
+- kube-ps1: プロンプトに Namespace 表示
+- Pod が起動しないケース
+  - kubectl logs: アプリの問題を特定
+  - kubectl describe: Kube の設定やリソースの問題が表示される
+  - kubectl run: exec は Pod が停止するとログインできないので、Pod イメージの Bash を起動
+    - kubectl run —image=<image> —restart=Never —rm -it <Pod> —command — /bin/bash
+-
+- Workloads リソース
+  - Pod
+    - 通常１ Pod に 1 コンテナ。プロキシコンテナ・SSL 終端など１ Pod に 2 コンテナ入れる。この場合同じ IP がコンテナに振られる。１ Pod に複数コンテナの場合、以下パターンがある。kubectl get で 2/2 と表示される
+      - サイドカー：メインコンテナに機能を追加。例：ログをストレージに転送する
+      - アンバサダー：コンテナと外部システム間の接続を代理する。複数にシャーディングされた DB に接続する際に、このコンテナでメインコンテナを疎結合にできる
+      - アダプタ：外部からのリクエストに対して差分を吸収する。Prometheus だと、Exporter で各ログを Prometheus の形式に合わせて転送する
+    - Pod 命名：英小文字、数、一部記号　- or . 　しか使えない
+    - spec.dnsPolicy: ClusterFirst だと Cluster 内 noDNS を利用。デフォルト
+    - spec.hostAliases: /etc/hosts を書き換える
+  - ReplicaSet
+    - 一定の数に POD を保つ。不足時は Template から生成し、過剰な際はラベルで一致するものを削除する
+    - selector.matchLabels.<label>で一致する Pod 数を検索する。Template の Label と上記 Selector の Label が一致しないとエラーで起動できず。
+    - Selector の設定
+      - equality-based: app=sample-app
+      - set-based: env In [dev,stg]
+  - Deployment
+    - Deployment→ReplicaSet→Pod という関係で POD を管理する。複数の ReplicaSet を管理できる。このようにすることで Rolling Update ができる。旧 → 新 ReplicaSet へ切り替える
+    - —rerord : kubectl apply で履歴を付ける
+    - kubectl rollout history: —record 付きであれば過去履歴を表示
+    - kubectl rollout undo —to-revision 1: 指定の Revision に戻す（古い ReplicaSet で起動される）。このコマンドはあるが、新規に kubectl apply を利用する
+    - アップデート戦略　 spec.strategy.type に記載
+      - Recreate：全て削除し再作成。ダウンあり。
+      - RollingUpdate：以下指定する。
+        - maxUnavailable: アップデート中に許容される不足 Pod
+        - maxSurge：超過 Pod
+        - minReadySeconds: Pod が Ready になったのち待ち時間を入れて、Deployment に連携する
+        - revisionHistoryLimit: ロールバック可能数
+        - progressDeadlineSeconds: アップデートの期限。この期限内にアップデートできない場合は Rollback
+  - DaemonSet
+    - ReplicaSet ではノードのリソース状況で Pod 配置する。DaemonSet では各ノードに必ず一つ Pod 配置する。nodeSelector, Node Anti-Affinity で除外も可能。Fluentd や Datadog 等で利用
+    - アップデート戦略
+      - RollingUpdate
+      - OnDelete：Pod が再作成された際に POD をアップデートする。任意のタイミングで手動で更新するには、kubectl delete pod でトリガーする
+  - StatefulSet
+    - Pod に連番が付与される. 0 番が最初作成され最後に削除される。作成時も Pod ひとつづつ作成となり遅い
+    - データ永続化の仕組みを有している。PV 利用時に同じ PV を使って再作成される。spec.volumeClaimTemplates で指定する。StatefulSet 削除後も PV は削除されず残る。バックアップのため
+    - アップデート戦略
+      - OnDelete
+      - RollingUpdate
+        - spec.strategy.type.rollingUpdate.partition：3 と記載すると、０ − ３までは更新対象外とできる。４以上が Update される
+  - Job
+    - 起動後に正常終了するバッチ処理向けの ReplicaSet。N 並列の Job を XX 回実行する
+    - RestartPolicy：spec.template.spec.restartPolicy
+      - Never: Pod 障害に新規作成
+      - OnFailure：失敗時に作成
+    - spec.completions:成功回数を指定する
+    - spec.parallelism：並列度を指定
+    - spec.backoffLimit：失敗を許容する回数
+  - Cronjob
+    - Cronjob→Job→Pod という関係。１分おきに５０％の確率で成功する Job を一度実行する
+    - spec.suspend:true だとスケジュールから除外される。kubectl apply や kubectl patch で適用
+    - spec.concurrencyPolicy で Pod の同時実行を制御できる。Forbid（同実行しない）、Replcae(前のジョブをキャンセルする)、Allow（許可するデフォルト）
+- Discovery＆LB
+  - Kubenetes の内部ネットワークはクラスタ作成時に自動作成される。Container Network Interface による実装で Node 感は VXLAN や L2 Routing で転送できる
+  - Service の目的
+    - Pod 向けの LB
+      - spec.selector に記載された Label に転送する。
+    - サービスディスカバリとクラスタ DNS
+      - 環境変数を利用したサービスディスカバリ
+      - DNS 　 A レコードを利用したサービスディスカバリ
+        - <Service 名>.<Namespace>.svc.cluster.local で DNS Lookup 可能（/etc/resolve.conf に svc.cluster.local が入っているので記載しなくて良い）
+      - DNS SRV レコードを利用したサービスディスカバリ
+        - <\_Service Port>.<\_Protocol>.<Service 名>.<Namespace>.svc.cluster.local で DNS 逆引き Lookup 可能
+    - ClusterIP
+      - 静的 IP も指定可能、Service 作成後には変更できない設定。spec.clusterIP
+    - ExternalIP
+      - type は ClusterIP だが、spec.externalIP で指定する。
+      - 利用可能な IP は、GKE Node に割り当てられた Internal IP のみ。Node の External IP は利用できない。
+    - NodePort 　 spec.type:NodePort
+      - すべての Node の IP をコンテナに転送する。spec.ports.nodePort を追加し、全ての Nodes で受け付ける Port 番号を指定する。Kubernetes クラスタ以外からも疎通できる。nodePort は 30000〜32767 まで
+      - 利用可能な IP は、Node の GlobalIP も付与可能
+      - Node 間で通信が分散されるので、同じ Node 内で閉じた通信をこなわせたい場合は、spec.externalTrafficPolicy を利用する。Type:Loadbalancer でも利用可能
+        - Cluster: Pod へのアクセスを均等にする
+        - Local：Node 到着後、Node をまたいだロードバランスはしない。ただし、転送先 Pod のラベルがない場合、レスポンスは返せない。
+    - LoadBalancer spec.type:LoadBalancer
+      - ExternalIP、NodePort いづれも割り当てられた Node の IP を使うため SPOF となっている。LB だと外部サービスを使うのでその心配がない。
+      - LoadBalancer を利用すると全世界に公開されるので、spec.loadBalancerSourceRanges で接続もと IP 制限する。GKE だと Cloud Load Balacer が作成される
+    - Headless Service spec.type:ClusterIP
+      - 対象となる Pod の IP がクラスタ内 DNS から直接帰ってくる。クライアント側のキャッシュに注意
+      - StatefulSet の場合のみ Pod の名前解決が可能
+      - Headless Service の条件。
+        - Service の Spec.type が ClusterIP
+        - Service の Spec.ClusterIP が Node
+        - Service の Metadata.name が StatefulSet の Spec.servicename と同じ
+    - ExternalName Service spec.type:ExternalName
+      - Service 名の名前解決に対して外部ドメインの CNAME を返す
+      - 外部の SaaS と POD を通信させる際に、ExternalName を利用すると、ExternalName の変更だけ行えばよい。外部サービスと疎結合となる。
+    - None-Selector Service 　 spec.type:ClusterIP
+      - ExternalName Service では CNAME をかえすが、これは ClusterIP を返す。以下条件が必要。
+        - spec.type:ClusterIP
+        - Selector を指定しない
+        - ExternalName も指定しない
+  - Ingress 　 kind:Ingress
+    - L7 の LoadBalancer
+    - クラスタ外のロードバランサ利用
+      - GKE Ingress 　 Client ->L7 Ingress ー＞ NodePort→Pod
+    - クラスタ内に Ingress 用の Pod 構築
+      - Nginx Ingress：Client ->L4 　 LB（type:LB）→Nginx Pod(L7)
+      - Nghttpx Ingress:
+- Config/Storage
+
+  - 環境変数
+    - 静的設定　 spec.containers.env
+    - Pod の情報 fieldRef??
+    - コンテナ resourceFieldRef
+  - Secret
+
+    - 平文で etcd 上に保管される。Secret を使う際に利用する Node のみに暗号化し転送する。tmpfs 領域に保持される。
+    - Kubesec：定義された Manifet を暗号化するオープンソース
+
+      - インストールし、GCP CloudKMS, AWS KMS, GnuPG を利用してデータ領域のみ暗号化する。
+      - インストール：sudo curl -o /usr/local/bin/kubesec -sL https://github.com/shyiko/kubesec/releases/download/${VERSION}/kubesec-${VERSION}-${OS_TYPE}-amd64
+      - GCP CloudKMS の場合、gcloud auth の認証情報で暗号化・複合を行う
+      - 事前に Keyring と暗号鍵を作成しておく。そのうえで、暗号鍵を指定し暗号化する。
+        - gcloud kms keyrings create sample-keyring —location global
+        - gcloud kms keys create —purpose encription —keyring sample-keyring —location global kubesec-key
+        - kubesec encrypt -i —key=gcp:projects/PROJECT/locations/global/keyRings/samplekeyring/cryptoKeys/kubeseckey sampledbauth.yaml
+        - kubesec decrypt -i sampledbauth.yaml
+
+    - 種類
+      - Generic (type:Opaque) \* 一般的。１ MB まで
+        - ファイル渡し：　 kubectl —from-file 　ファイル名が Key となる
+        - まとめてファイルから渡す　 kubectl —from-env-file:
+          - kubectl create secret generic —save-config sample-db-auth —from-env-file ./env-secret.txt
+        - 直接 kubectl で値を渡す　—from-literal
+        - Manifest 渡し: Type は Generic ではなく Opaque とする。Base64 形式で記載する
+      - TLS(type: kubetetes.io/tls) 証明書を LB で渡す際に設定する
+        - kubectl create secret tls —save-config tls-sample —key ~/tls.key —cert ~/tls.crt
+      - Docker registry (type:kubernetes.io/dockerconfgijson)
+        - プライベートコンテナレジストリの場合、認証情報の設定が必要。kubectl で作成し、spec.imagePullSecrets で指定する
+        - kubectl create secret —save-config docker-registry sample-registry-auth —docker-server=REGISTRY_SERVER —docker-username=REGISTRY_USER --docker-password=REGISTRY_USER_PASSWORD —docker-email=REGISTRY_USER_EMAIL
+      - Service Account(type:kubernetes.io/service-account-token)
+    - 利用方法
+      - 環境変数渡し：起動時に読み込まれるのみ。
+        - spec.containers[].env 内で valueFrom.secretKeyRef で Secret 名と Key を指定し渡す
+        - spec.containers[].envFrom で Secret 名を渡す
+      - Volume マウント：60 秒で定期的に Secret の更新を検知する
+        - spec.volumes[]の secret.items[]で指定可能。secret で Secret 全体をマウントすることも可能
+
+  - ConfigMap
+    - データに秘匿性の有無があるだけ。Secret とほぼ同じ
+  - PersistentVolumeClaim
+    - Volume：Kubenetes では作成できない。Manifest に指定して利用するだけ。ConfigMap や Secret もその一種。静的な領域を指定するので競合に注意すること
+      - emptyDir：Pod の一時的な領域。Pod がなくなると削除される
+      - hostPath:Node 上の領域。spec.volumes[].hostPath.type には Directory,　 DirectoryOrCreate、File、Socket、BlockDevice を指定する。
+      - downwardAPI: Pod の情報をファイルとして配置するプラグイン
+      - projected: 複数のファイルを一箇所にまとめる。spec.volumes[].projected.sources[]に各 Secret や ConfigMap の名前を指定する。
+    - PersistentVolume：外部の永続ボリュームを提供するシステムと連携し、ボリュームの作成・削除が可能。
+      - プラグインの種類
+        - GCE Persistent Disk（AWS EBS)
+          - Disk 作成後、PV で指定する
+          - gcloud compute disks create —size=10GB samplegcepv —zone asia-north-east1-a
+        - NFS
+        - iSCSI
+        - Ceph
+        - GlusterFS
+        - OpenStack Cinder
+      - 作成時の設定項目
+        - ラベル
+        - 容量：PVC で指定した容量の PV がない場合は、最も近い容量の DISK がアサインされる。その場合容量の無駄が発生
+        - アクセスモード：RWO（ReadWriteOnce：単一ノードから RW）、ROX（ReadOnlyMany：複数ノード）、、RWX（ReadWriteMany）
+          - GCP,AWS では、RWX はサポートされない。
+        - Reclaim Policy：PV を利用し終えた際の処理。Delete（PV 実態が削除される。DynamicProvisionig で利用）、Retain（消さない、他 PVC で再利用されない）、Recycle（データ削除し再利用可能な状態とする。いづれなくなる）
+        - マウントオプション
+          - ReadOnly、SubPath（フォルダ競合をさける Pod1,Pod2 フォルダを Root フォルダとする）
+        - Storage Class：GKE では kubernetes.io/gce-pd が定義される。DynamicProvisionig が有効であるため、自動払い出しをさけるには no-provisioner を定義しておく
+        - プラグインごとの設定
+    - PersistentVolumeClaim：Cluster 内に定義された PersistentVolume を、Pod からアサインするためのリソース。
+      - pod から利用するには、spec.volumes[]に persistentVolumeClaim.claimName を指定する。
+      - DynamicProvisionig は、PV を自動で作成してくれる。要求しただけの容量がアサインされ無駄がない。ただアクセスモードに制限がある場合あり。
+      - kubectl patch コマンドで PVC の容量を変更できる。縮小はできない
+    - StatefulSet では spec.volumeClaimTemplate が設定できる。自動で PVC を作成できる
+
+- Cluster リソース
+  - 種類
+    - Node
+    - Namespace
+    - PV
+    - ResourceQuota
+      - 前提
+        - 1000 ｍ＝ 1VCPU。GH ｚではない。
+        - spec.containers[].resources に requests[Or limits].cpu or memory で指定する。Request は最低、Limit は最大。Limit を超えた場合でも Node に配置され OverCommit される。Request は超えると配置されない。
+        - requests, limits に nvidia.com/gpu としてすれば GPU 指定できる
+        - Node の AutoScaller は Pod の Requests をベースに発動される。
+        - QoS Class：Pod には Requests・Limits に応じて、自動的に QoS Class が設定される。以下条件で Kubenetes の Status に保存。リソース不足で Pod が停止される際に１，２，３の順に停止される。
+          - １：Best effort: R/L が未設定
+          - ３：Guaranteed：R/L がともに設定される
+          - ２：Burstable: Guaranteed 以外で一つ以上 R/L が設定される
+      - Namespace ごとにリソース制限できる。
+        - 作成可能なリソース数（例：Secret を 10 個まで）
+        - リソース量の制限（例：PV100GB まで）
+    - Service Account
+      - Pod 起動時にひとつ必要。DefaultSA。プライベートレポジトリにアクセスする際に Secret と紐付ける。
+      - Kubenetes/client-go での API 認証
+        - Service Account トークン（In-Cluster Config)
+        - Kubeconfig の認証情報利用（クラスタ外から利用可能）
+      - SA に対して、どのロールを実行できるか認可設定を行う。
+      - RBAC(RoleBaseAccessControl）
+        - Namespace
+        - Cluster
+    - Role:NameSpace を指定する。
+    - ClusterRole：Cluster を指定する。Role との違いはスコープのみ
+      - プリセット。
+      - Cluster-admin:すべての管理者
+      - admin：ClusterRole の編集＋ Namespace の RBAC
+      - edit: ReadWrite
+      - view: ReadOnly
+    - RoleBinding：NameSpace を指定する。
+    - ClusterRoleBinding：Cluster 指定。RoleBiding との違いはスコープのみ
+    - SecurityContext：コンテナに対するセキュリティ設定、特権コンテナとして実行。
+    - PodSecurityContext：Pod に対するセキュリティ設定
+    - PodSecurityPolicy：AllowedHostPaths など制限を付与する。ホワイトリスト形式
+    - NetoworkPolicy：Pod 間の NW ルールを定義する。Namespace ごとに通信を Block するなど可能。STG と PRD 間は Block する。
+- MetaData
+  - 種類
+    - LimitRange
+      - Namespace ごとにコンテナ・Pod・PV のリソースの最大値・最小値、デフォルトを設定できる。default, defaultRequest, max, min, maxLimitRequestRatio(Limits と Requests の割合。過度の OverCommit を防ぐ)
+    - HPA（HorizontalPodAutoscaler）
+      - 30 秒単位で AutoScale すべきか判断する。
+      - Pod の 1 分間の平均 CPU 利用率で判断し、Target の平均値を超えた場合、3 分に一回 ScaleOut する。スケールインは 5 分に 1 回
+    - VPA(VeriticalPodAutoscaler）
+      - コンテナに割り当てる CPU/MEM を自動的にスケールさせる。Alpha 段階で導入未定
+    - PodDisruptionBudge
+      - Node 排出時に最大停止できる Pod 数を設定する。
+        - spec.minAvailable: Pod の最小起動数
+        - spec.maxUnavailable：Pod の最大停止数
+    - CustomeResourceDefinition
+- ライフサイクル
+  - HealthCheck
+    - 以下種類があり、spec.containers に設定する。LB では Node での ICMP しかチェックしないので、Pod への設定が必要。
+      - Liveness Probe: Pod が正常に動作しているか確認する。失敗時には Pod 再起動
+      - Readiness Probe：Pod がサービスインする準備ができているか確認する。失敗時には NW トラフィックを流さない。
+    - チェック方式
+      - Exec：コマンドの結果、Exit0 以外を失敗と判定
+      - httpGet: HTTP status 200-399 以外だと失敗
+      - tcpSocket: TCP セッション確率できないと失敗
+    - チェック間隔
+      - initialDelaySeconds：初回チェック開始までの遅延
+      - periodSeconds: チェック間隔
+      - timeoutSeconds:タイムアウト
+      - successThreshold:成功回数
+      - failureThreshold: 失敗回数
+    - 再起動ポリシー　 spec.restartPolicy で指定する
+      - Always: Pod が停止した場合、毎回再起動する（Default）
+      - OnFailure: Exit コードが 0 以外のとき、再起動する
+      - Never: 再起動しない。
+  - Init Containers
+    - コンテナ起動前に別コンテナを起動させる。Setup 　 Script を実行させる。spec.initContainers で指定する。順番にひとつづつ実行される。
+  - postStart, preStop
+    - 任意のコマンド実行。spec.containers[].lifecycle.postStart で設定する。
+    - ただし postStart は spec.containers[].command と非同期で実施されるので使用は控えたほうが良い
+    - Service の除外設定と、Pod の停止処理は自立分散システムであるために非同期。なので PreStop の前に待機時間を設定すべき
+    - spec.terminationGracePeriodSeconds(default30sec)の設定あり。この期間内に SIGTERM 処理が終わっていない場合は SIGKILL で強制停止される
+- メンテナンス
+  - Node のスケジュール除外
+    - kubectl cordon # 新規 Pod 作成を防ぐ
+    - kubectl uncordon
+    - kubectl drain # Pod を該当 Node から退避させる。Cordon 実施後 SIGTERM 処理がされる
+  - 特定の Node のみスケジュールする
+    - nodeSelector: 簡易版。特定のラベルを持つ Node に配置
+    - nodeAffinity: 特定のノードにスケジュール
+    - Node Anti-Affinity：特定のノード以外にスケジュール
+    - InterPod Affinity：Pod を特定のドメインへ移動させる
+    - InterPod Anti-Affinity：Pod を特定のドメイン以外に移動させる
+  - Node に Taints をつけ許容できる Pod のみスケジュール
+- オープンソース
+  - Helm
+    - インストール
+      - curl -sL https://storage.googleapis.com/kuberneteshelm/helm-v${VERSION}-${OS_TYPE}-amd64.tar.gz -o /tmp/helm.tar.gz
+      - tar -xvf /tmp/helm.tar.gz
+      - mv ${OS_TYPE}-amd64/helm /usr/local/bin/
+      - chmod 755 /usr/local/bin/helm
+    - Helm の要求を処理する Tiller Pod を立ち上げる。
+      - kubectl -n kube-system create serviceaccount tiller
+      - kubectl create —save-config clusterrolebinding tiller —clusterrole=cluster-admin —user=“system:serviceaccount:kube-system:tiller”
+      - helm init —service-account tiller # Tiller Pod 立ち上げ
+      - helm reset # Uninstall
+    - Chart
+      - レシピは以下 Github で公開。Stable と Incubator があり。Stable だけデフォルトでは利用可能。
+      - https://github.com/helm/charts
+      - helm search <chart> #検索
+      - helm install stable/datadog —version 0.15.0 —name datadog-chart-sample —set datadog.apiKey=xxxx
+      - helm template datadog/ # Manifest 出力
+  - Ksonnect
+  - Kustomize
+- CNI
+  - Flannel: 簡素な CNI. VXLAN 利用。Network Policy 利用不可
+  - Calico: Network Policy 利用可能。Node の NW を利用する
+  - Canal: Flannel と Calico の組み合わせ。Tanzu でも利用される
+  - LB との連携
+    - https://www.janog.gr.jp/meeting/janog43/application/files/2215/4900/5049/janog43-k8s-shirota.pdf
+  -
+- ログ
+  - ログはコンテナの標準出力・エラー出力させるよう設定する。もしくは PV でクラスタ外の永続化領域に保存する。
+  - Fluentd は DaemonSet を各ノードに稼働させる。標準出力は/var/log/containers 以下に出力され、Fluentd Pod が Tail プラグインで読み出す。
+  - Fluentd と Fluent Bit は完全互換ではない。Fluent Bit は軽量な Fluentd で対応可能なプラグインも少ない。
+  - Datadog Agent も Fluentd と同様。
+- CICD
+  - Spinnaker：Netflix が開発
+  - Skaffold：Google が開発
+  - JenkinsX：Jenkins の設定の台部分を自動化。
+- マイクロサービス
+  - Linkerd：実績
+  - Conduit：軽量、モニタリングだけ
+  - Istio：機能の多さ、K8s との親和性
+- K8s のアーキテクチャ
+  - etcd: データストア
+  - kube-apiserver：API を提供するコンポーネント。中心となる IF
+  - kube-scheduler：Pod のスケジューリングのみ。Affinity など判断
+  - kube-controller-manager：Deployment や ReplicaSet の状態を監視し必要に応じて Pod や ReplicaSet を作成する。
+  - kubelet：Node 上で Pod を起動・停止させる
+  - kube-proxy：Serivce リソースが作成された際にトラフィックを Pod に転送する。
+  - kube-dns：クラスタ内 DNS
+
+---
+
+# Istio
+
+- マイクロサービスの課題
+  - データ一貫性
+  - 複雑なサービス間通信
+    - 通信の回復性（リトライ、サーキットブレーカー）
+    - 負荷分散
+    - 分散トレース
+    - サービスバージョン管理
+    - サービス間暗号化
+  - モニタリング
+- サービスメッシュ　アプリに代わって NW 処理を代行する SW レイヤ。これによってトラフィック制御、回復性、可視性、暗号セキュリティを実現する
+- Istio Goole IBM,Lyft によって開発されたサービスメッシュフレームワーク。K8S の POD 内に Sidecar でプロキシ（Envoy）を導入する
+  - ControlPlain:
+    - Mixer：ポリシー設定、メトリック収集
+    - Pilot: プロキシの管理・設定
+    - Citadel: 認証、Credential 管理
+  - DataPlain
+    - Proxy: Envoy によるプロキシ機能
+- Traffic Management
+  - IngressGateway ＋ VirtualService
+  - Request Routing
+    - Trafic Splitting A/Btest
+    - Traffic Steering (特定条件のデータを特定の Pod へ。Cockie のユーザ情報が A なら Pod A へ等）
+    - Traffic Mirror (通信をミラーし応答パケットだけ弾く）
+    - Fault Inject （回復性、Abort や」Delay を検知）
+    - サーキットブレイカー　（接続待ちが１以上になればエラーを返すなど）
+  - Security
+    - 認証
+      - サービス間認証（相互 TLS)、エンドユーザ認証（GoogleAuth など）
+    - 認可
+      - RBAC （複数レベルのアクセスコントロール機能を実装。Namespace, Service, Method など）
+  - 監視
+    - Promethous ＋ Garafana
+    - 分散トレース
+      - Jaeger (Uber 開発の OSS）SPAN 情報と TraceID が非同期で Jaegar に非同期で転送される
+        - Span：各サービスの統計情報
+        - Trace：Span の合計
+
+---
+
+# Knative
+
+- K8S,Istio に加え、アプリケーションライフサイクルの抽象化するフレームワーク
+  - Build こーどの Build、パッケージ化
+  - Service 　ルーティング、
+  - Event 　コードの発火
+
+---
+
+## ServiceAccount
+
+サービスアカウント作成
+Jenkins へのサービスアカウントの鍵設定
+※鍵が外部に漏れない様に検討すべきポイント
+・オンプレから GCR へのアクセス
+・GKE から GCR へのアクセス
+
+## GCR
+
+Bucket 名
+gsutil iam コマンドで権限付与
+非公開設定
+Container Analysis コンテナイメージのスキャンを実施するか否か？
+
+■GKE
+ローリングアップデート
+NameSpace 単位のリソース制御
+Label(Tag)
+Deployment 設計（CPU・MEM 使用率など HPA）
+Version 指定
+
+■Ingress
+負荷分散（特にスティッキーセッション）
+SSL
+
+■Secret
+
+- Generic：　通常の ID,パス
+- TLS 　：Ingress
+- Docker Registry 　認証
+- Service Account
+- kubectl create -f secret.yml
+  kubectl create -f deployment.yml
+  kubectl get pods —watch
+
+kubectl create secret generic —save-config sample-db-auth —file-file=./username —form-file=./password # username.txt と password.txt から Secret を作成
+kubectl get secrets sampe-db-auth -o json | jq -r .data.username | base64 —decode # decode secrect
+
+kubectl create secret generic —save-config sample-db-auth —form-env-file ./env-secret.txt
